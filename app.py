@@ -1,152 +1,108 @@
 from flask import Flask, request, jsonify
-from flask_restful import Api
+from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_migrate import Migrate
-from config import db
-from models import Recipe, Category, Ingredient
+from models import Recipe, Category, db  # Import from models.py
 
-# Initialize the Flask app
+# Initialize app and migrate
 app = Flask(__name__)
-CORS(app)
-api = Api(app)
-
-# Database configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'  # Updated to use `app.db`
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///recipes.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Initialize database and migrations
+# Initialize the database
 db.init_app(app)
 migrate = Migrate(app, db)
 
-# Root route for testing
-@app.route('/')
-def index():
-    return {'message': 'Recipe Restaurant Backend'}
+CORS(app, supports_credentials=True)
 
-# -------------------- Recipe CRUD Routes --------------------
-
-@app.route('/recipes', methods=['POST'])
-def create_recipe():
-    """Create a new recipe."""
-    data = request.get_json()
-    new_recipe = Recipe(name=data['name'], description=data.get('description'), category_id=data['category_id'])
-    db.session.add(new_recipe)
-    db.session.commit()
-    return jsonify(new_recipe.to_dict()), 201
-
-@app.route('/recipes', methods=['GET'])
-def get_recipes():
-    """Retrieve all recipes."""
-    recipes = Recipe.query.all()
-    return jsonify([recipe.to_dict() for recipe in recipes])
-
-@app.route('/recipes/<int:id>', methods=['GET'])
-def get_recipe(id):
-    """Retrieve a single recipe by ID."""
-    recipe = Recipe.query.get_or_404(id)
-    return jsonify(recipe.to_dict())
-
-@app.route('/recipes/<int:id>', methods=['PUT'])
-def update_recipe(id):
-    """Update an existing recipe by ID."""
-    recipe = Recipe.query.get_or_404(id)
-    data = request.get_json()
-    recipe.name = data.get('name', recipe.name)
-    recipe.description = data.get('description', recipe.description)
-    recipe.category_id = data.get('category_id', recipe.category_id)
-    db.session.commit()
-    return jsonify(recipe.to_dict())
-
-@app.route('/recipes/<int:id>', methods=['DELETE'])
-def delete_recipe(id):
-    """Delete a recipe by ID."""
-    recipe = Recipe.query.get_or_404(id)
-    db.session.delete(recipe)
-    db.session.commit()
-    return '', 204
-
-# -------------------- Category CRUD Routes --------------------
-
-@app.route('/categories', methods=['POST'])
-def create_category():
-    """Create a new category."""
-    data = request.get_json()
+# CRUD functions for categories
+def create_category(data):
     new_category = Category(name=data['name'])
     db.session.add(new_category)
     db.session.commit()
-    return jsonify(new_category.to_dict()), 201
+    return new_category
 
-@app.route('/categories', methods=['GET'])
-def get_categories():
-    """Retrieve all categories."""
-    categories = Category.query.all()
-    return jsonify([category.to_dict() for category in categories])
+def get_all_categories():
+    return Category.query.all()
 
-@app.route('/categories/<int:id>', methods=['GET'])
-def get_category(id):
-    """Retrieve a single category by ID."""
-    category = Category.query.get_or_404(id)
-    return jsonify(category.to_dict())
-
-@app.route('/categories/<int:id>', methods=['PUT'])
-def update_category(id):
-    """Update an existing category by ID."""
-    category = Category.query.get_or_404(id)
-    data = request.get_json()
-    category.name = data.get('name', category.name)
-    db.session.commit()
-    return jsonify(category.to_dict())
-
-@app.route('/categories/<int:id>', methods=['DELETE'])
-def delete_category(id):
-    """Delete a category by ID."""
-    category = Category.query.get_or_404(id)
+def delete_category_by_id(category_id):
+    category = Category.query.get(category_id)
+    if not category:
+        return None
     db.session.delete(category)
     db.session.commit()
-    return '', 204
+    return category
 
-# -------------------- Ingredient CRUD Routes --------------------
+# Category Routes
+@app.route('/categories', methods=['GET', 'POST'])
+def handle_categories():
+    if request.method == 'GET':
+        categories = get_all_categories()
+        return jsonify([{'id': cat.id, 'name': cat.name} for cat in categories])
+    
+    if request.method == 'POST':
+        data = request.json
+        new_category = create_category(data)
+        return jsonify({'id': new_category.id, 'name': new_category.name}), 201
 
-@app.route('/ingredients', methods=['POST'])
-def create_ingredient():
-    """Create a new ingredient."""
-    data = request.get_json()
-    recipe = Recipe.query.get_or_404(data['recipe_id'])
-    new_ingredient = Ingredient(name=data['name'], quantity=data['quantity'], recipe_id=recipe.id)
-    db.session.add(new_ingredient)
+@app.route('/categories/<int:category_id>', methods=['DELETE'])
+def delete_category(category_id):
+    category = delete_category_by_id(category_id)
+    if not category:
+        return jsonify({'error': 'Category not found'}), 404
+    return jsonify({'message': 'Category deleted'}), 200
+
+# CRUD functions for recipes
+def create_recipe(data):
+    category = Category.query.get(data['category_id'])
+    if not category:
+        return None
+    new_recipe = Recipe(
+        name=data['name'],
+        description=data['description'],
+        category_id=data['category_id'],
+        user_id=1  # Assuming a user with ID 1 exists
+    )
+    db.session.add(new_recipe)
     db.session.commit()
-    return jsonify(new_ingredient.to_dict()), 201
+    return new_recipe
 
-@app.route('/ingredients', methods=['GET'])
-def get_ingredients():
-    """Retrieve all ingredients."""
-    ingredients = Ingredient.query.all()
-    return jsonify([ingredient.to_dict() for ingredient in ingredients])
+def get_all_recipes():
+    return Recipe.query.all()
 
-@app.route('/ingredients/<int:id>', methods=['GET'])
-def get_ingredient(id):
-    """Retrieve a single ingredient by ID."""
-    ingredient = Ingredient.query.get_or_404(id)
-    return jsonify(ingredient.to_dict())
-
-@app.route('/ingredients/<int:id>', methods=['PUT'])
-def update_ingredient(id):
-    """Update an existing ingredient by ID."""
-    ingredient = Ingredient.query.get_or_404(id)
-    data = request.get_json()
-    ingredient.name = data.get('name', ingredient.name)
-    ingredient.quantity = data.get('quantity', ingredient.quantity)
+def delete_recipe_by_id(recipe_id):
+    recipe = Recipe.query.get(recipe_id)
+    if not recipe:
+        return None
+    db.session.delete(recipe)
     db.session.commit()
-    return jsonify(ingredient.to_dict())
+    return recipe
 
-@app.route('/ingredients/<int:id>', methods=['DELETE'])
-def delete_ingredient(id):
-    """Delete an ingredient by ID."""
-    ingredient = Ingredient.query.get_or_404(id)
-    db.session.delete(ingredient)
-    db.session.commit()
-    return '', 204
+# Recipe Routes
+@app.route('/recipes', methods=['GET', 'POST'])
+def handle_recipes():
+    if request.method == 'GET':
+        recipes = get_all_recipes()
+        return jsonify([
+            {'id': r.id, 'name': r.name, 'description': r.description, 'ingredients': [{'name': i.name} for i in r.ingredients], 'category': r.category.name} 
+            for r in recipes
+        ])
+    
+    if request.method == 'POST':
+        data = request.json
+        new_recipe = create_recipe(data)
+        if not new_recipe:
+            return jsonify({'error': 'Invalid category ID'}), 400
+        return jsonify({'id': new_recipe.id, 'name': new_recipe.name, 'category': new_recipe.category.name}), 201
 
-# Run the app
+@app.route('/recipes/<int:recipe_id>', methods=['DELETE'])
+def delete_recipe(recipe_id):
+    recipe = delete_recipe_by_id(recipe_id)
+    if not recipe:
+        return jsonify({'error': 'Recipe not found'}), 404
+    return jsonify({'message': 'Recipe deleted'}), 200
+
 if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
